@@ -1,0 +1,45 @@
+name: external health ping
+
+# External cron — runs from GitHub's infra, not Railway's. This catches
+# "Railway is down" outages that the in-process internal cron can't.
+#
+# Setup:
+#   1. In the repo, set two secrets under Settings → Secrets and variables → Actions:
+#        HEALTH_URL    e.g. https://health-production.up.railway.app/api/check
+#        HEALTH_TOKEN  the value of HEALTHCHECK_TOKEN from Railway
+#   2. The first run will start within ~5 minutes after merge.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: hit /api/check
+        env:
+          HEALTH_URL: ${{ secrets.HEALTH_URL }}
+          HEALTH_TOKEN: ${{ secrets.HEALTH_TOKEN }}
+        run: |
+          if [ -z "$HEALTH_URL" ] || [ -z "$HEALTH_TOKEN" ]; then
+            echo "::warning::HEALTH_URL or HEALTH_TOKEN not set; skipping."
+            exit 0
+          fi
+          # We capture status separately so we can log the body on failure.
+          body=$(mktemp)
+          status=$(curl -sS -o "$body" -w "%{http_code}" \
+            -H "Authorization: Bearer $HEALTH_TOKEN" \
+            --max-time 30 \
+            "$HEALTH_URL")
+          echo "HTTP $status"
+          cat "$body"
+          # 200 = all ok, 503 = at least one fail (which the service itself
+          # already alerted on). Both are "service is up". Anything else
+          # means the health service itself is broken.
+          if [ "$status" = "200" ] || [ "$status" = "503" ]; then
+            exit 0
+          fi
+          exit 1

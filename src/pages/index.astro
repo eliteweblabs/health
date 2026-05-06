@@ -1,0 +1,227 @@
+---
+import { listActiveServices } from '../lib/registry';
+
+const services = listActiveServices();
+const totalChecks = services.reduce((n, s) => n + s.checks.length, 0);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>health</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0d10;
+        --panel: #14181d;
+        --border: #232930;
+        --text: #e6e9ee;
+        --muted: #8a93a0;
+        --ok: #2dd47f;
+        --fail: #ff5c5c;
+        --skip: #c9a14a;
+        --accent: #6aa3ff;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      .wrap { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px; }
+      header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 24px; }
+      h1 { margin: 0; font-size: 22px; letter-spacing: 0.5px; }
+      .sub { color: var(--muted); font-size: 12px; }
+      .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+      button, input[type="password"], input[type="text"] {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+        padding: 8px 14px;
+        font: inherit;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      input { cursor: text; min-width: 280px; }
+      button:hover { border-color: var(--accent); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .toolbar label { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 18px 20px;
+        margin-bottom: 16px;
+      }
+      .summary { display: flex; gap: 24px; align-items: baseline; flex-wrap: wrap; }
+      .summary .big { font-size: 28px; font-weight: 600; }
+      .summary .ok { color: var(--ok); }
+      .summary .fail { color: var(--fail); }
+
+      .row {
+        display: grid;
+        grid-template-columns: 80px 1fr auto auto;
+        gap: 12px;
+        padding: 10px 14px;
+        align-items: center;
+        border-top: 1px solid var(--border);
+      }
+      .row:first-of-type { border-top: 0; }
+      .pill {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        text-transform: uppercase;
+      }
+      .pill.ok { background: rgba(45, 212, 127, 0.12); color: var(--ok); }
+      .pill.fail { background: rgba(255, 92, 92, 0.12); color: var(--fail); }
+      .pill.skip { background: rgba(201, 161, 74, 0.12); color: var(--skip); }
+      .pill.pending { background: var(--border); color: var(--muted); }
+      .label .name { color: var(--text); }
+      .label .detector { color: var(--muted); font-size: 11px; margin-left: 6px; }
+      .label .detail { color: var(--muted); font-size: 12px; margin-top: 2px; }
+      .ms { color: var(--muted); font-size: 12px; }
+      .empty { color: var(--muted); padding: 24px; text-align: center; }
+
+      .footer { color: var(--muted); font-size: 12px; margin-top: 32px; text-align: center; }
+      a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div>
+          <h1>health</h1>
+          <div class="sub">auto-discovered service monitoring</div>
+        </div>
+        <div class="sub" id="ranAt">never run</div>
+      </header>
+
+      <div class="panel">
+        <div class="summary">
+          <div><span class="big" id="okCount">–</span> <span class="sub">ok</span></div>
+          <div><span class="big fail" id="failCount">–</span> <span class="sub">fail</span></div>
+          <div><span class="sub">total checks discovered:</span> <strong>{totalChecks}</strong></div>
+          <div><span class="sub">detectors firing:</span> <strong>{services.length}</strong></div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <input type="password" id="token" placeholder="HEALTHCHECK_TOKEN" autocomplete="current-password" />
+        <button id="runBtn">Run now</button>
+        <label><input type="checkbox" id="auto" /> auto-refresh 60s</label>
+      </div>
+
+      <div class="panel" id="rows">
+        {services.length === 0 ? (
+          <div class="empty">
+            No detectors fired. Set env vars (see <code>.env.example</code>) and redeploy.
+          </div>
+        ) : (
+          services.flatMap((svc) =>
+            svc.checks.map((checkName) => (
+              <div class="row" data-name={checkName}>
+                <span class="pill pending">pending</span>
+                <div class="label">
+                  <div><span class="name">{checkName}</span><span class="detector">{svc.detector}</span></div>
+                  <div class="detail"></div>
+                </div>
+                <span class="ms"></span>
+                <span></span>
+              </div>
+            ))
+          )
+        )}
+      </div>
+
+      <div class="footer">
+        API: <code>GET /api/check</code> · <code>GET /api/services</code> ·
+        <code>GET /api/check/&lt;name&gt;</code> · all require <code>Authorization: Bearer &lt;token&gt;</code>
+      </div>
+    </div>
+
+    <script is:inline>
+      (function () {
+        const tokenInput = document.getElementById('token');
+        const runBtn = document.getElementById('runBtn');
+        const autoBox = document.getElementById('auto');
+        const ranAtEl = document.getElementById('ranAt');
+        const okEl = document.getElementById('okCount');
+        const failEl = document.getElementById('failCount');
+        const rowsEl = document.getElementById('rows');
+
+        const STORAGE = 'health.token';
+        tokenInput.value = localStorage.getItem(STORAGE) || '';
+
+        let timer = null;
+
+        async function run() {
+          const token = tokenInput.value.trim();
+          if (token) localStorage.setItem(STORAGE, token);
+          runBtn.disabled = true;
+          runBtn.textContent = 'Running…';
+          try {
+            const res = await fetch('/api/check', {
+              headers: token ? { Authorization: 'Bearer ' + token } : {},
+              cache: 'no-store',
+            });
+            if (res.status === 401) {
+              ranAtEl.textContent = 'unauthorized — set HEALTHCHECK_TOKEN above';
+              return;
+            }
+            const data = await res.json();
+            render(data);
+          } catch (err) {
+            ranAtEl.textContent = 'error: ' + (err && err.message ? err.message : err);
+          } finally {
+            runBtn.disabled = false;
+            runBtn.textContent = 'Run now';
+          }
+        }
+
+        function render(report) {
+          ranAtEl.textContent = 'last run ' + new Date(report.ranAt).toLocaleTimeString() +
+            ' (' + report.totalMs + 'ms)';
+          let ok = 0, fail = 0;
+          for (const r of report.results) {
+            if (r.status === 'ok') ok++;
+            else if (r.status === 'fail') fail++;
+            const row = rowsEl.querySelector('[data-name="' + cssEscape(r.name) + '"]');
+            if (!row) continue;
+            const pill = row.querySelector('.pill');
+            pill.className = 'pill ' + r.status;
+            pill.textContent = r.status;
+            row.querySelector('.detail').textContent = r.detail || '';
+            row.querySelector('.ms').textContent = r.ms + 'ms';
+          }
+          okEl.textContent = ok;
+          failEl.textContent = fail;
+        }
+
+        function cssEscape(s) {
+          if (window.CSS && CSS.escape) return CSS.escape(s);
+          return s.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+        }
+
+        runBtn.addEventListener('click', run);
+        autoBox.addEventListener('change', () => {
+          if (timer) { clearInterval(timer); timer = null; }
+          if (autoBox.checked) timer = setInterval(run, 60000);
+        });
+
+        if (tokenInput.value) run();
+      })();
+    </script>
+  </body>
+</html>
